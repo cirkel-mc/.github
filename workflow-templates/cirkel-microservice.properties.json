@@ -3,6 +3,7 @@
   "description": "env development for backend microservices cirkel",
   "iconName": "go",
   "categories": [
+    "Go",
     "go",
     "cirkel-be",
     "cirkel",
