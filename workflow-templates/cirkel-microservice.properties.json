@@ -1,7 +1,7 @@
 {
   "name": "Workflows Microservices",
   "description": "env development for backend microservices cirkel",
-  "iconName": "go",
+  "iconName": "Go",
   "categories": [
     "go",
     "cirkel-be",
