@@ -17,6 +17,8 @@ jobs:
     outputs:
       kube_config: ${{ steps.set-variable.outputs.kube_config }}
       image_tag: ${{ steps.set-variable.outputs.image_tag }}
+      file_values: ${{ steps.set-variable.outcome.file_values }}
+      namespace: ${{ steps.set-variable.outputs.namespace }}
     steps:
       - uses: actions/checkout@v3
       - name: Set env variable
@@ -25,20 +27,24 @@ jobs:
         run: |
           if [[ ${{ github.ref }} =~ ^refs\/heads\/release\/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             version_tag=$(echo ${{ github.ref }} | cut -d '/' -f4)
-            echo "image_tag=$(echo $version_tag | sed 's@v.@@')" >> "$GITHUB_ENV"
-            echo "kube_config=${{ secrets.KUBECONFIG_PRODUCTION }}" >> "$GITHUB_ENV"
-            echo "namespace=cirkel" >> "$GITHUB_ENV"
+            echo "image_tag=$(echo $version_tag | sed 's@v.@@')
+            file_values=values-prd.yaml
+            kube_config=${{ secrets.KUBECONFIG_PRODUCTION }}
+            namespace=cirkel" >> $GITHUB_OUTPUT
           fi
 
           if [[ ${{ github.ref }} =~ ^refs/heads/feature/[a-zA-Z0-9_-]{0,50} ]]; then
-            echo "image_tag=${{ github.sha }}" >> "$GITHUB_ENV"
-            echo "kube_config=${{ secrets.KUBECONFIG }}" >> "$GITHUB_ENV"
-            echo "namespace=cirkel-dev" >> "$GITHUB_ENV"
+            echo "image_tag=${{ github.sha }}
+            file_values=values-dev.yaml
+            kube_config=${{ secrets.KUBECONFIG }}
+            namespace=cirkel-dev" >> $GITHUB_ENV
           fi
 
   build:
     name: Build Application
     runs-on: ubuntu-22.04
+    env:
+      IMAGE_TAG: ${{ needs.setup-job-env.outputs.image_tag }}
     needs:
       - setup-job-env
     steps:
@@ -60,11 +66,16 @@ jobs:
             token=${{ secrets.GH_PERSONAL_TOKEN }}
           push: true
           tags: |
-            ${{ env.CR_URL }}:$image_tag
+            ${{ env.CR_URL }}:${{ env.IMAGE_TAG }}
   
   deploy:
       name: Deploy application
       runs-on: ubuntu-22.04
+      env:
+        IMAGE_TAG: ${{ needs.setup-job-env.outputs.image_tag }}
+        KUBECONFIG: ${{ needs.setup-job-env.outputs.kube_config }}
+        NAMESPACE: ${{ needs.setup-job-env.outputs.namespace }}
+        FILE_VAULES: ${{ needs.setup-job-env.outputs.file_values }}
       needs:
         - setup-job-env
         - build
@@ -76,6 +87,6 @@ jobs:
           with:
             args: |
               helm repo add cirkel ${{ secrets.PAGES_URL }}/charts
-              helm upgrade --install ${{ github.repository }} cirkel/cirkel-chart -n $namespace \
+              helm upgrade --install ${{ github.repository }} cirkel/cirkel-chart -f ${{ env.FILE_VAULES }} -n ${{ env.NAMESPACE }} \
                 --set image.repository=${{ env.CR_URL }} \
-                --set image.tag=$image_tag
+                --set image.tag=${{ env.IMAGE_TAG }}
