@@ -1,0 +1,12 @@
+{
+  "name": "microservices for development env",
+  "description": "env development for backend microservices cirkel",
+  "iconName": "go",
+  "categories": [
+    "go",
+    "cirkel-be",
+    "cirkel",
+    "microservices",
+    "cirkel-microservice"
+  ]
+}
