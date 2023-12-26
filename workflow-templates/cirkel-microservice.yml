@@ -6,7 +6,7 @@ on:
       - 'release/**'
   pull_request_target: 
     branches:
-      - $default-branch
+      - "master"
 
 env:
   CR_URL: ${{ secrets.REGISTRY_URL }}/${{ github.repository }}
@@ -15,30 +15,39 @@ jobs:
   setup-job-env:
     runs-on: ubuntu-22.04
     outputs:
-      kube_config: ${{ steps.set-variable.outputs.kube_config }}
+      kube_context: ${{ steps.set-variable.outputs.kube_context }}
       image_tag: ${{ steps.set-variable.outputs.image_tag }}
-      file_values: ${{ steps.set-variable.outcome.file_values }}
+      file_values: ${{ steps.set-variable.outputs.file_values }}
       namespace: ${{ steps.set-variable.outputs.namespace }}
+      service_name: ${{ steps.set-variable.outputs.service_name }}
     steps:
       - uses: actions/checkout@v3
       - name: Set env variable
         id: set-variable
         shell: bash
         run: |
-          if [[ ${{ github.ref }} =~ ^refs\/heads\/release\/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            version_tag=$(echo ${{ github.ref }} | cut -d '/' -f4)
-            echo "image_tag=$(echo $version_tag | sed 's@v.@@')
-            file_values=values-prd.yaml
-            kube_config=${{ secrets.KUBECONFIG_PRODUCTION }}
-            namespace=cirkel" >> $GITHUB_OUTPUT
+          branch=${{ github.head_ref }}
+          if [ -z "$branch" ]; then
+            branch=${{ github.ref }}
+          fi
+          echo $branch
+
+          if [[ $branch =~ ^refs\/heads\/release\/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            version_tag=$(echo $branch | cut -d '/' -f4)
+            echo "image_tag=$(echo $version_tag | sed 's@v@@')" >> $GITHUB_OUTPUT
+            echo "file_values=values-prd.yaml" >> $GITHUB_OUTPUT
+            echo "kube_context=cirkel-prod" >> $GITHUB_OUTPUT
+            echo "namespace=cirkel" >> $GITHUB_OUTPUT
           fi
 
-          if [[ ${{ github.ref }} =~ ^refs/heads/feature/[a-zA-Z0-9_-]{0,50} ]]; then
-            echo "image_tag=${{ github.sha }}
-            file_values=values-dev.yaml
-            kube_config=${{ secrets.KUBECONFIG }}
-            namespace=cirkel-dev" >> $GITHUB_ENV
+          if [[ $branch =~ ^feature\/[a-zA-Z0-9_-]{0,50} ]]; then
+            echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "file_values=values-dev.yaml" >> $GITHUB_OUTPUT
+            echo "kube_context=pg" >> $GITHUB_OUTPUT
+            echo "namespace=cirkel-dev" >> $GITHUB_OUTPUT
           fi
+
+          echo "service_name=$(echo ${{ github.repository }} | cut -d '/' -f2)" >> $GITHUB_OUTPUT
 
   build:
     name: Build Application
@@ -73,20 +82,21 @@ jobs:
       runs-on: ubuntu-22.04
       env:
         IMAGE_TAG: ${{ needs.setup-job-env.outputs.image_tag }}
-        KUBECONFIG: ${{ needs.setup-job-env.outputs.kube_config }}
         NAMESPACE: ${{ needs.setup-job-env.outputs.namespace }}
         FILE_VAULES: ${{ needs.setup-job-env.outputs.file_values }}
       needs:
         - setup-job-env
         - build
       steps:
+        - uses: actions/checkout@v3
         - name: Deploy with Helm Chart
           uses: wahyd4/kubectl-helm-action@master
           env:
-            KUBE_CONFIG_DATA: $kube_config
+            KUBE_CONFIG_DATA: ${{ secrets.KUBECONFIG }}
           with:
             args: |
+              kubectl config use-context ${{ needs.setup-job-env.outputs.kube_context }}
               helm repo add cirkel ${{ secrets.PAGES_URL }}/charts
-              helm upgrade --install ${{ github.repository }} cirkel/cirkel-chart -f ${{ env.FILE_VAULES }} -n ${{ env.NAMESPACE }} \
+              helm upgrade --install ${{ needs.setup-job-env.outputs.service_name }} cirkel/cirkel-chart -f ${{ env.FILE_VAULES }} -n ${{ env.NAMESPACE }} \
                 --set image.repository=${{ env.CR_URL }} \
                 --set image.tag=${{ env.IMAGE_TAG }}
