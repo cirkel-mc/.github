@@ -4,12 +4,12 @@ on:
   push:
     branches:
       - 'release/**'
-  pull_request_target: 
+  pull_request: 
     branches:
-      - "master"
+      - 'master'
 
 env:
-  CR_URL: ${{ secrets.REGISTRY_URL }}/${{ github.repository }}
+  CR_URL: ghcr.io/cirkel-mc
 
 jobs:
   setup-job-env:
@@ -21,18 +21,30 @@ jobs:
       namespace: ${{ steps.set-variable.outputs.namespace }}
       service_name: ${{ steps.set-variable.outputs.service_name }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       - name: Set env variable
         id: set-variable
         shell: bash
         run: |
           branch=${{ github.head_ref }}
+          echo $branch
           if [ -z "$branch" ]; then
             branch=${{ github.ref }}
+            echo $branch
           fi
           echo $branch
 
           if [[ $branch =~ ^refs\/heads\/release\/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            version_tag=$(echo $branch | cut -d '/' -f4)
+            echo "image_tag=$(echo $version_tag | sed 's@v@@')" >> $GITHUB_OUTPUT
+            echo "file_values=values-prd.yaml" >> $GITHUB_OUTPUT
+            echo "kube_context=cirkel-prod" >> $GITHUB_OUTPUT
+            echo "namespace=cirkel" >> $GITHUB_OUTPUT
+          fi
+
+          if [[ $branch =~ ^release\/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             version_tag=$(echo $branch | cut -d '/' -f4)
             echo "image_tag=$(echo $version_tag | sed 's@v@@')" >> $GITHUB_OUTPUT
             echo "file_values=values-prd.yaml" >> $GITHUB_OUTPUT
@@ -59,11 +71,13 @@ jobs:
     needs:
       - setup-job-env
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       - name: Login to Github Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REGISTRY_URL }}
+          registry: ${{ env.CR_URL }}
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -77,7 +91,7 @@ jobs:
             token=${{ secrets.GH_PERSONAL_TOKEN }}
           push: true
           tags: |
-            ${{ env.CR_URL }}:${{ env.IMAGE_TAG }}
+            ${{ env.CR_URL }}/${{ needs.setup-job-env.outputs.service_name }}:${{ env.IMAGE_TAG }}
   
   deploy:
       name: Deploy application
@@ -90,7 +104,9 @@ jobs:
         - setup-job-env
         - build
       steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v4
+          with:
+            ref: ${{ github.ref }}
         - name: Deploy with Helm Chart
           uses: wahyd4/kubectl-helm-action@master
           env:
@@ -100,5 +116,5 @@ jobs:
               kubectl config use-context ${{ needs.setup-job-env.outputs.kube_context }}
               helm repo add cirkel ${{ secrets.PAGES_URL }}/charts
               helm upgrade --install ${{ needs.setup-job-env.outputs.service_name }} cirkel/cirkel-chart -f ${{ env.FILE_VAULES }} -n ${{ env.NAMESPACE }} \
-                --set image.repository=${{ env.CR_URL }} \
+                --set image.repository=${{ env.CR_URL }}/${{ needs.setup-job-env.outputs.service_name }} \
                 --set image.tag=${{ env.IMAGE_TAG }}
