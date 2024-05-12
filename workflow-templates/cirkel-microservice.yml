@@ -11,6 +11,10 @@ on:
 env:
   CR_URL: ghcr.io/cirkel-mc
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   setup-job-env:
     runs-on: ubuntu-22.04
@@ -65,8 +69,6 @@ jobs:
   build:
     name: Build Application
     runs-on: ubuntu-22.04
-    permissions:
-      packages: write
     env:
       IMAGE_TAG: ${{ needs.setup-job-env.outputs.image_tag }}
     needs:
@@ -84,7 +86,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker build and push into repository
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
