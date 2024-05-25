@@ -95,6 +95,7 @@ jobs:
             token=${{ secrets.GH_PERSONAL_TOKEN }}
           push: true
           tags: |
+            ${{ env.CR_URL }}/${{ needs.setup-job-env.outputs.service_name }}:latest
             ${{ env.CR_URL }}/${{ needs.setup-job-env.outputs.service_name }}:${{ env.IMAGE_TAG }}
   
   deploy:
